@@ -47,7 +47,7 @@ const GAME_THEMES: Record<GameTheme, { bg: string, text: string, accent: string,
 };
 
 // --- Markdown Renderer Component ---
-const GameMarkdown: React.FC<{ content: string, theme: any }> = ({ content, theme }) => {
+const GameMarkdown: React.FC<{ content: string, theme: any, customStyle?: { fontSize: number, color: string } }> = ({ content, theme, customStyle }) => {
     // Helper: Parse Inline Styles (**bold**, *italic*, `code`)
     const parseInline = (text: string) => {
         const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
@@ -59,7 +59,7 @@ const GameMarkdown: React.FC<{ content: string, theme: any }> = ({ content, them
                 return <em key={i} className="italic opacity-70 text-[95%] mx-0.5">{part.slice(1, -1)}</em>;
             }
             if (part.startsWith('`') && part.endsWith('`')) {
-                return <code key={i} className="bg-black/20 px-1 py-0.5 rounded font-mono text-xs opacity-90 mx-0.5">{part.slice(1, -1)}</code>;
+                return <code key={i} className="bg-black/20 px-1 py-0.5 rounded font-mono text-[0.9em] opacity-90 mx-0.5">{part.slice(1, -1)}</code>;
             }
             return <span key={i}>{part}</span>;
         });
@@ -67,20 +67,26 @@ const GameMarkdown: React.FC<{ content: string, theme: any }> = ({ content, them
 
     // Split by newlines to handle blocks
     const lines = content.split('\n');
+    
+    // Dynamic Style Object
+    const styleObj = {
+        fontSize: customStyle ? `${customStyle.fontSize}px` : undefined,
+        color: customStyle?.color || undefined
+    };
 
     return (
-        <div className="space-y-2 text-justify">
+        <div className="space-y-[0.5em] text-justify leading-relaxed" style={styleObj}>
             {lines.map((line, i) => {
                 const trimmed = line.trim();
-                if (!trimmed) return <div key={i} className="h-1"></div>;
+                if (!trimmed) return <div key={i} className="h-[0.5em]"></div>;
                 
-                // Headers
-                if (trimmed.startsWith('### ')) return <h3 key={i} className={`text-sm font-bold uppercase tracking-wider mt-3 mb-1 opacity-90 ${theme.accent}`}>{trimmed.slice(4)}</h3>;
-                if (trimmed.startsWith('## ')) return <h3 key={i} className="text-base font-bold mt-4 mb-2 opacity-95">{trimmed.slice(3)}</h3>;
-                if (trimmed.startsWith('# ')) return <h3 key={i} className="text-lg font-black mt-5 mb-3 text-center border-b border-current pb-2 opacity-90">{trimmed.slice(2)}</h3>;
+                // Headers (Relative sizing)
+                if (trimmed.startsWith('### ')) return <h3 key={i} className={`text-[1.1em] font-bold uppercase tracking-wider mt-[0.5em] mb-[0.2em] opacity-90 ${theme.accent}`}>{trimmed.slice(4)}</h3>;
+                if (trimmed.startsWith('## ')) return <h3 key={i} className="text-[1.25em] font-bold mt-[0.6em] mb-[0.3em] opacity-95">{trimmed.slice(3)}</h3>;
+                if (trimmed.startsWith('# ')) return <h3 key={i} className="text-[1.5em] font-black mt-[0.8em] mb-[0.5em] text-center border-b border-current pb-2 opacity-90">{trimmed.slice(2)}</h3>;
                 
                 // Blockquotes
-                if (trimmed.startsWith('> ')) return <div key={i} className="border-l-2 border-current pl-3 py-1 my-2 italic opacity-70 text-xs bg-black/5 rounded-r">{parseInline(trimmed.slice(2))}</div>;
+                if (trimmed.startsWith('> ')) return <div key={i} className="border-l-2 border-current pl-3 py-1 my-2 italic opacity-70 text-[0.9em] bg-black/5 rounded-r">{parseInline(trimmed.slice(2))}</div>;
                 
                 // Lists
                 if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
@@ -95,11 +101,11 @@ const GameMarkdown: React.FC<{ content: string, theme: any }> = ({ content, them
 
                 // Separator
                 if (trimmed === '---' || trimmed === '***') {
-                    return <div key={i} className="h-px bg-current opacity-20 my-4"></div>;
+                    return <div key={i} className="h-px bg-current opacity-20 my-[1em]"></div>;
                 }
 
                 // Standard Paragraph
-                return <div key={i} className="leading-7 tracking-wide">{parseInline(trimmed)}</div>;
+                return <div key={i}>{parseInline(trimmed)}</div>;
             })}
         </div>
     );
@@ -125,9 +131,12 @@ const GameApp: React.FC = () => {
     const [isRolling, setIsRolling] = useState(false);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
-    // Menu States
+    // UI Toggles
     const [showSystemMenu, setShowSystemMenu] = useState(false);
     const [isArchiving, setIsArchiving] = useState(false);
+    const [showTools, setShowTools] = useState(false); // Default hidden
+    const [showParty, setShowParty] = useState(true);  // Default visible
+    const [uiSettings, setUiSettings] = useState<{fontSize: number, color: string}>({ fontSize: 14, color: '' });
 
     useEffect(() => {
         loadGames();
@@ -740,39 +749,50 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
         <div className={`h-full w-full flex flex-col ${theme.bg} ${theme.text} ${theme.font} transition-colors duration-500 relative`}>
             
             {/* Header */}
-            <div className={`h-14 flex items-center justify-between px-4 border-b ${theme.border} shrink-0 bg-opacity-90 backdrop-blur z-20`}>
-                <button onClick={handleLeave} className={`p-2 -ml-2 rounded hover:bg-white/10 active:scale-95 transition-transform`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                </button>
-                <div className="flex flex-col items-center">
-                    <span className="font-bold text-sm tracking-wide">跑团: {activeGame.title}</span>
-                    <span className="text-[9px] opacity-60 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                        {activeGame.status.location}
-                    </span>
+            <div className={`h-14 flex items-center justify-between px-4 border-b ${theme.border} shrink-0 bg-opacity-90 backdrop-blur z-20 relative`}>
+                <div className="flex items-center gap-2">
+                    <button onClick={handleLeave} className={`p-2 -ml-2 rounded hover:bg-white/10 active:scale-95 transition-transform`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    </button>
+                    <div className="flex flex-col">
+                        <span className="font-bold text-sm tracking-wide line-clamp-1 max-w-[150px]">{activeGame.title}</span>
+                        <span className="text-[9px] opacity-60 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                            {activeGame.status.location}
+                        </span>
+                    </div>
                 </div>
-                <button onClick={() => setShowSystemMenu(true)} className={`p-2 -mr-2 rounded hover:bg-white/10 active:scale-95 transition-transform`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
-                </button>
+                
+                <div className="flex gap-1">
+                    {/* Toggle Party HUD */}
+                    <button onClick={() => setShowParty(!showParty)} className={`p-2 rounded hover:bg-white/10 active:scale-95 transition-transform ${showParty ? theme.accent : 'opacity-50'}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
+                    </button>
+                    <button onClick={() => setShowSystemMenu(true)} className={`p-2 -mr-2 rounded hover:bg-white/10 active:scale-95 transition-transform`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                    </button>
+                </div>
             </div>
 
-            {/* --- NEW: Party HUD (Persistent Avatars) --- */}
-            <div className={`flex gap-4 p-3 overflow-x-auto no-scrollbar border-b ${theme.border} bg-black/20 backdrop-blur-sm z-10 shrink-0`}>
-                {/* User Avatar */}
-                <div className="relative group shrink-0">
-                    <img src={userProfile.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm" />
-                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-black/60 text-white text-[8px] px-1.5 rounded-full backdrop-blur-sm whitespace-nowrap">YOU</div>
-                </div>
-                {/* Teammates */}
-                {activePlayers.map(p => (
-                    <div key={p.id} className="relative group shrink-0 cursor-pointer active:scale-95 transition-transform">
-                        <img src={p.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm group-hover:border-white/50 transition-colors" />
-                        <div className="absolute inset-0 rounded-full ring-2 ring-transparent group-hover:ring-green-400/50 transition-all"></div>
-                        {/* Simple Status Indicator (Green Dot) */}
-                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-black/50 shadow-sm animate-pulse"></div>
+            {/* --- NEW: Party HUD (Collapsible) --- */}
+            {showParty && (
+                <div className={`flex gap-4 p-3 overflow-x-auto no-scrollbar border-b ${theme.border} bg-black/20 backdrop-blur-sm z-10 shrink-0 animate-slide-down`}>
+                    {/* User Avatar */}
+                    <div className="relative group shrink-0">
+                        <img src={userProfile.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm" />
+                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-black/60 text-white text-[8px] px-1.5 rounded-full backdrop-blur-sm whitespace-nowrap">YOU</div>
                     </div>
-                ))}
-            </div>
+                    {/* Teammates */}
+                    {activePlayers.map(p => (
+                        <div key={p.id} className="relative group shrink-0 cursor-pointer active:scale-95 transition-transform">
+                            <img src={p.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm group-hover:border-white/50 transition-colors" />
+                            <div className="absolute inset-0 rounded-full ring-2 ring-transparent group-hover:ring-green-400/50 transition-all"></div>
+                            {/* Simple Status Indicator (Green Dot) */}
+                            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-black/50 shadow-sm animate-pulse"></div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Stats HUD */}
             <div className={`px-4 py-2 border-b ${theme.border} bg-black/10 backdrop-blur-sm z-10 grid grid-cols-3 gap-2 shrink-0`}>
@@ -811,7 +831,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                             <div key={log.id || i} className="animate-fade-in my-4">
                                 <div className={`p-5 rounded-lg border-2 ${theme.border} ${theme.cardBg} shadow-sm relative mx-auto w-full text-sm`}>
                                     <div className="absolute -top-3 left-4 bg-inherit px-2 text-[10px] font-bold uppercase tracking-widest opacity-80 border border-inherit rounded">Game Master</div>
-                                    <GameMarkdown content={log.content} theme={theme} />
+                                    <GameMarkdown content={log.content} theme={theme} customStyle={uiSettings} />
                                 </div>
                             </div>
                         );
@@ -825,7 +845,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                 <div className="flex flex-col max-w-[85%]">
                                     <span className="text-[10px] font-bold opacity-60 mb-1 ml-1">{charInfo.name}</span>
                                     <div className={`px-4 py-2 rounded-2xl rounded-tl-none text-sm ${theme.cardBg} border ${theme.border} shadow-sm`}>
-                                        <GameMarkdown content={log.content} theme={theme} />
+                                        <GameMarkdown content={log.content} theme={theme} customStyle={uiSettings} />
                                     </div>
                                 </div>
                             </div>
@@ -879,28 +899,41 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                     </div>
                 )}
 
-                <div className="flex gap-2 mb-3">
-                    <button 
-                        onClick={rollDice} 
-                        disabled={isRolling}
-                        className={`flex-1 py-2 rounded border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center gap-2 font-bold text-sm`}
-                    >
-                        <span className="text-xl">🎲</span> {isRolling ? 'Rolling...' : (diceResult || 'Roll D20')}
-                    </button>
-                    {['调查', '攻击', '交涉'].map(action => (
-                        <button key={action} onClick={() => handleAction(action)} className={`px-4 py-2 rounded border ${theme.border} hover:bg-white/10 text-xs font-bold transition-colors active:scale-95`}>{action}</button>
-                    ))}
-                </div>
+                {/* Collapsible Action Toolbar */}
+                {showTools && (
+                    <div className="flex gap-2 mb-3 animate-fade-in">
+                        <button 
+                            onClick={rollDice} 
+                            disabled={isRolling}
+                            className={`flex-1 py-2 rounded border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center gap-2 font-bold text-sm`}
+                        >
+                            <span className="text-xl">🎲</span> {isRolling ? 'Rolling...' : (diceResult || 'Roll D20')}
+                        </button>
+                        {['调查', '攻击', '交涉'].map(action => (
+                            <button key={action} onClick={() => handleAction(action)} className={`px-4 py-2 rounded border ${theme.border} hover:bg-white/10 text-xs font-bold transition-colors active:scale-95`}>{action}</button>
+                        ))}
+                    </div>
+                )}
+
                 <div className="flex gap-2 items-end">
-                    {/* Reroll Button */}
+                    {/* Toggle Tools Button */}
                     <button 
-                        onClick={handleReroll}
-                        disabled={isTyping || activeGame.logs.length === 0}
-                        className={`p-3 h-12 rounded-xl border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center`}
-                        title="重新生成上一轮"
+                        onClick={() => setShowTools(!showTools)}
+                        className={`p-3 h-12 rounded-xl border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center ${showTools ? 'bg-white/20' : ''}`}
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 opacity-70"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                        <span className="text-lg">🧰</span>
                     </button>
+
+                    {/* Reroll Button (Context Sensitive) */}
+                    {!isTyping && activeGame.logs.length > 0 && (
+                        <button 
+                            onClick={handleReroll}
+                            className={`p-3 h-12 rounded-xl border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center`}
+                            title="重新生成上一轮"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 opacity-70"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                        </button>
+                    )}
 
                     <textarea 
                         value={userInput} 
@@ -917,7 +950,37 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
 
             {/* System Menu Modal */}
             <Modal isOpen={showSystemMenu} title="系统菜单" onClose={() => setShowSystemMenu(false)}>
-                <div className="space-y-3">
+                <div className="space-y-4">
+                    {/* UI Settings */}
+                    <div className="bg-slate-100 p-3 rounded-xl">
+                        <label className="text-xs text-slate-500 font-bold mb-3 block border-b border-slate-200 pb-1">阅读设置 (Display)</label>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs text-slate-400 w-8">字号</span>
+                                <input 
+                                    type="range" 
+                                    min="12" 
+                                    max="24" 
+                                    step="1"
+                                    value={uiSettings.fontSize} 
+                                    onChange={e => setUiSettings({...uiSettings, fontSize: parseInt(e.target.value)})} 
+                                    className="flex-1 h-1.5 bg-slate-300 rounded-lg appearance-none cursor-pointer accent-orange-500" 
+                                />
+                                <span className="text-xs font-mono text-slate-600 w-6 text-right">{uiSettings.fontSize}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs text-slate-400 w-8">颜色</span>
+                                <input 
+                                    type="color" 
+                                    value={uiSettings.color || '#e5e5e5'} 
+                                    onChange={e => setUiSettings({...uiSettings, color: e.target.value})} 
+                                    className="w-full h-8 rounded cursor-pointer bg-white border border-slate-200 p-0.5" 
+                                />
+                            </div>
+                            <button onClick={() => setUiSettings({ fontSize: 14, color: '' })} className="w-full py-1.5 bg-white border border-slate-200 text-slate-500 text-xs rounded-lg active:scale-95 transition-transform">恢复默认</button>
+                        </div>
+                    </div>
+
                     <button onClick={handleArchiveAndQuit} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
                         <span>💾</span> 归档记忆并退出
                     </button>
