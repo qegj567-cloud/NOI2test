@@ -415,7 +415,9 @@ export interface GameSession {
     logs: GameLog[];
     status: {
         location: string;
-        health: number; // Simplified Party HP or Stress
+        health: number; // HP
+        sanity: number; // MP / Sanity
+        gold: number;   // Currency
         inventory: string[];
     };
     createdAt: number;

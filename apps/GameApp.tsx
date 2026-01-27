@@ -61,7 +61,8 @@ const GameApp: React.FC = () => {
     const [isRolling, setIsRolling] = useState(false);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
-    // Archive State
+    // Menu States
+    const [showSystemMenu, setShowSystemMenu] = useState(false);
     const [isArchiving, setIsArchiving] = useState(false);
 
     useEffect(() => {
@@ -101,6 +102,8 @@ const GameApp: React.FC = () => {
             status: {
                 location: 'Start Point',
                 health: 100,
+                sanity: 100,
+                gold: 0,
                 inventory: []
             },
             createdAt: Date.now(),
@@ -140,23 +143,32 @@ const GameApp: React.FC = () => {
         requestAnimationFrame(animate);
     };
 
-    const handleAction = async (actionText: string) => {
+    const handleAction = async (actionText: string, isReroll: boolean = false) => {
         if (!activeGame || !apiConfig.apiKey) return;
         
-        // 1. Add User/System Action to Log
-        const userLog: GameLog = {
-            id: `log-${Date.now()}`,
-            role: actionText.startsWith('[System') ? 'system' : 'player',
-            speakerName: userProfile.name,
-            content: actionText,
-            timestamp: Date.now(),
-            diceRoll: diceResult ? { result: diceResult, max: 20 } : undefined
-        };
-        
-        const updatedLogs = [...activeGame.logs, userLog];
-        const updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now() };
-        setActiveGame(updatedGame);
-        await DB.saveGame(updatedGame);
+        let contextLogs = activeGame.logs;
+        let updatedGame = activeGame;
+
+        if (!isReroll) {
+            // Standard Action: Append user log
+            const userLog: GameLog = {
+                id: `log-${Date.now()}`,
+                role: actionText.startsWith('[System') ? 'system' : 'player',
+                speakerName: userProfile.name,
+                content: actionText,
+                timestamp: Date.now(),
+                diceRoll: diceResult ? { result: diceResult, max: 20 } : undefined
+            };
+            
+            const updatedLogs = [...activeGame.logs, userLog];
+            updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now() };
+            setActiveGame(updatedGame);
+            await DB.saveGame(updatedGame);
+            contextLogs = updatedLogs;
+        } else {
+            // Reroll: Context logs are already prepared by handleReroll
+            // Basically contextLogs = logs up to last user message
+        }
         
         setUserInput('');
         setDiceResult(null);
@@ -168,50 +180,65 @@ const GameApp: React.FC = () => {
             let playerContext = "";
             for (const p of players) {
                 // FIXED: Include detailed memories (true) so characters act based on history
-                playerContext += `\n<<< 角色档案 (Player Character): ${p.name} (ID: ${p.id}) >>>\n${ContextBuilder.buildCoreContext(p, userProfile, true)}\n`;
+                playerContext += `\n<<< 角色档案: ${p.name} (ID: ${p.id}) >>>\n${ContextBuilder.buildCoreContext(p, userProfile, true)}\n`;
             }
 
-            const prompt = `### TRPG 跑团模式 (Tabletop Role-Playing Game)
-**世界观**: ${activeGame.worldSetting}
-**当前地点**: ${activeGame.status.location}
-**队伍状态**: HP ${activeGame.status.health}% | 物品栏: ${activeGame.status.inventory.join(', ') || '空'}
+            const prompt = `### 🎲 TRPG 跑团模式: ${activeGame.title}
+**当前剧本**: ${activeGame.worldSetting}
+**当前场景**: ${activeGame.status.location}
+**队伍资源**: 
+- ❤️ HP: ${activeGame.status.health}% 
+- 🧠 SAN: ${activeGame.status.sanity || 100}%
+- 💰 GOLD: ${activeGame.status.gold || 0}
+- 🎒 物品: ${activeGame.status.inventory.join(', ') || '空'}
 
-### 队伍成员 (AI 扮演)
-${players.map(p => `- ${p.name} (ID: ${p.id})`).join('\n')}
+### 👥 冒险小队 (The Party)
+1. **${userProfile.name}** (玩家/User)
+${players.map(p => `2. **${p.name}** (ID: ${p.id}) - 你的队友`).join('\n')}
 
-### 玩家 (User)
-${userProfile.name}
-
-### 角色档案与记忆 (Character Contexts)
+### 📜 角色档案 (Character Sheets)
 ${playerContext}
 
-### 最近记录 (Recent Logs)
-${updatedLogs.slice(-10).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName || 'System')}]: ${l.content}`).join('\n')}
+### 📝 冒险记录 (Log)
+${contextLogs.slice(-15).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName || 'System')}]: ${l.content}`).join('\n')}
 
-### 任务：生成剧情响应
-请根据玩家的行动，生成剧情发展和角色的反应。
-**必须**包含以下两部分：
-1. **GM (主持人)**: 判定玩家行动的结果。描述环境变化、敌人行动或发现的物品。客观、沉浸。
-2. **角色反应 (Reactions)**: 队伍中的 **每一位** 角色都**必须**对当前情况或玩家的行动做出反应。
-   - **对话 (Dialogue)**: 一句简短的台词。可以是吐槽、建议、情感表达或战术交流。
-   - **动作 (Action)**: 一个具体的肢体动作。
+### 🎲 GM 指令 (Game Master Instructions)
+你现在是这场跑团游戏的 **主持人 (GM)**。
+**现在的状态**：这不是一个"AI服务玩家"的场景，而是一群性格各异的伙伴（${players.map(p => p.name).join(', ')}）正和玩家(${userProfile.name})一起在这个疯狂的游戏世界里冒险。
 
-### 输出格式 (Strict JSON)
-请仅输出 JSON，不要包含markdown代码块。
+**请遵循以下法则**：
+1. **全员「入戏」 (Roleplay First)**: 
+   - 队友们是活生生的冒险者，不是客服。
+   - **拒绝机械感**: 他们应该主动观察环境、吐槽现状、互相开玩笑、或者在危机时大喊大叫。
+   - **性格驱动**: 如果角色设定是胆小的，遇到怪物就要想逃跑；如果是贪财的，看到宝箱就要眼红。请让他们的反应**极其真实**。
+   - **队内互动**: 队友之间也可以有互动（比如A吐槽B的计划），不仅仅是和玩家说话。
+
+2. **硬核 GM 风格**: 
+   - **制造冲突**: 不要让旅途一帆风顺。安排陷阱、突发战斗、尴尬的社交场面、或者道德困境。
+   - **环境描写**: 描述光影、气味、声音，营造沉浸感。
+   - **数值惩罚**: 如果玩家做出危险举动，请毫不留情地扣除 HP 或 SAN，并让队友对此表示震惊或无奈。
+
+3. **响应逻辑**:
+   - 先由 GM 描述环境变化或行动结果。
+   - 然后**所有**在场的队友根据结果做出反应（对话/动作）。
+
+### 📤 输出格式 (Strict JSON)
+请仅输出 JSON，不要包含 Markdown 代码块。
 {
   "gm_narrative": "GM的剧情描述 (中文)...",
   "characters": [
     { 
-      "charId": "角色的ID (必须与上方列表一致)", 
-      "action": "动作描述 (中文)", 
-      "dialogue": "台词内容 (中文)" 
+      "charId": "角色ID (必须对应上方列表)", 
+      "action": "动作描述 (e.g. 拔剑 / 躲到玩家身后 / 翻白眼)", 
+      "dialogue": "台词 (e.g. '喂！这也太危险了吧！')" 
     }
   ],
-  "newLocation": "可选：新地点名称",
+  "newLocation": "新地点 (可选)",
   "hpChange": 0,
-  "newItem": "可选：获得的物品名称"
-}
-`;
+  "sanityChange": 0,
+  "goldChange": 0,
+  "newItem": "获得物品 (可选)"
+}`;
 
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
@@ -220,7 +247,7 @@ ${updatedLogs.slice(-10).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
                     model: apiConfig.model,
                     messages: [{ role: "user", content: prompt }],
                     temperature: 0.85, 
-                    max_tokens: 3000
+                    max_tokens: 4000
                 })
             });
 
@@ -260,15 +287,20 @@ ${updatedLogs.slice(-10).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
                     }
                 }
 
-                // Update State
-                const newStatus = { ...activeGame.status };
+                // Update State (Stats)
+                const newStatus = { ...updatedGame.status };
                 if (res.newLocation) newStatus.location = res.newLocation;
-                if (res.hpChange) newStatus.health = Math.max(0, Math.min(100, newStatus.health + res.hpChange));
+                
+                // Stat Updates
+                if (res.hpChange) newStatus.health = Math.max(0, Math.min(100, (newStatus.health || 100) + res.hpChange));
+                if (res.sanityChange) newStatus.sanity = Math.max(0, Math.min(100, (newStatus.sanity || 100) + res.sanityChange));
+                if (res.goldChange) newStatus.gold = Math.max(0, (newStatus.gold || 0) + res.goldChange);
+                
                 if (res.newItem) newStatus.inventory = [...newStatus.inventory, res.newItem];
 
                 const finalGame = {
                     ...updatedGame,
-                    logs: [...updatedLogs, ...newLogs],
+                    logs: [...contextLogs, ...newLogs], // Append to correct context
                     status: newStatus
                 };
                 
@@ -283,9 +315,76 @@ ${updatedLogs.slice(-10).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
         }
     };
 
-    const handleSaveAndQuit = async () => {
+    const handleReroll = async () => {
+        if (!activeGame || isTyping) return;
+        
+        // Find index of last user/system action
+        const logs = activeGame.logs;
+        let lastUserIndex = -1;
+        for (let i = logs.length - 1; i >= 0; i--) {
+            if (logs[i].role === 'player' || logs[i].role === 'system') {
+                lastUserIndex = i;
+                break;
+            }
+        }
+
+        if (lastUserIndex === -1) {
+            addToast('没有可供重生的上下文', 'info');
+            return;
+        }
+
+        // Keep logs up to and including the last user input
+        const contextLogs = logs.slice(0, lastUserIndex + 1);
+        
+        // Optimistic Update
+        const rolledBackGame = { ...activeGame, logs: contextLogs };
+        setActiveGame(rolledBackGame);
+        
+        await handleAction("", true); // isReroll = true
+        addToast('正在重新推演命运...', 'info');
+    };
+
+    const handleRestart = async () => {
+        if (!activeGame) return;
+        if (!confirm('确定要重置当前游戏吗？所有进度将丢失。')) return;
+
+        const initialLog: GameLog = {
+            id: 'init',
+            role: 'gm',
+            content: `欢迎来到 "${activeGame.title}"。\n世界观载入中...\n${activeGame.worldSetting}`,
+            timestamp: Date.now()
+        };
+
+        const resetGame: GameSession = {
+            ...activeGame,
+            logs: [initialLog],
+            status: {
+                location: 'Start Point',
+                health: 100,
+                sanity: 100,
+                gold: 0,
+                inventory: []
+            },
+            lastPlayedAt: Date.now()
+        };
+
+        await DB.saveGame(resetGame);
+        setActiveGame(resetGame);
+        setShowSystemMenu(false);
+        addToast('游戏已重置', 'success');
+    };
+
+    // "Leave" just goes back to lobby (Auto-save is handled by DB calls in handleAction)
+    const handleLeave = () => {
+        setActiveGame(null);
+        setView('lobby');
+        setShowSystemMenu(false);
+    };
+
+    const handleArchiveAndQuit = async () => {
         if (!activeGame) return;
         setIsArchiving(true);
+        setShowSystemMenu(false);
         
         try {
             const players = characters.filter(c => activeGame.playerCharIds.includes(c.id));
@@ -319,22 +418,23 @@ Output: A first-person memory summary in Chinese.`;
                     };
                     updateCharacter(p.id, { memories: [...(p.memories || []), mem] });
                 }
-                addToast('游戏进度已保存并生成记忆', 'success');
+                addToast('记忆已生成并归档', 'success');
             }
         } catch (e) {
             console.error(e);
         } finally {
             setIsArchiving(false);
-            setView('lobby');
+            setView('lobby'); // Return to lobby
             setActiveGame(null);
         }
     };
 
     const handleDeleteGame = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        if (confirm('确定删除此存档吗？')) {
+        if (window.confirm('确定要删除这个存档吗？')) {
             await DB.deleteGame(id);
             setGames(prev => prev.filter(g => g.id !== id));
+            addToast('存档已删除', 'success');
         }
     };
 
@@ -430,7 +530,9 @@ Output: A first-person memory summary in Chinese.`;
             
             {/* Header */}
             <div className={`h-14 flex items-center justify-between px-4 border-b ${theme.border} shrink-0 bg-opacity-90 backdrop-blur z-20`}>
-                <button onClick={handleSaveAndQuit} className={`px-3 py-1 text-[10px] font-bold border ${theme.border} rounded hover:bg-white/10 active:scale-95 transition-transform`}>Save & Quit</button>
+                <button onClick={handleLeave} className={`p-2 -ml-2 rounded hover:bg-white/10 active:scale-95 transition-transform`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                </button>
                 <div className="flex flex-col items-center">
                     <span className="font-bold text-sm tracking-wide">{activeGame.title}</span>
                     <span className="text-[9px] opacity-60 flex items-center gap-1">
@@ -438,20 +540,25 @@ Output: A first-person memory summary in Chinese.`;
                         {activeGame.status.location}
                     </span>
                 </div>
-                <div className={`text-xs font-bold ${theme.accent} font-mono`}>HP {activeGame.status.health}</div>
+                <button onClick={() => setShowSystemMenu(true)} className={`p-2 -mr-2 rounded hover:bg-white/10 active:scale-95 transition-transform`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                </button>
             </div>
 
-            {/* Party HUD (Heads-Up Display) */}
-            <div className={`px-4 py-3 border-b ${theme.border} bg-black/10 backdrop-blur-sm z-10 flex gap-4 overflow-x-auto no-scrollbar items-center justify-center shrink-0`}>
-                {activePlayers.map(p => (
-                    <div key={p.id} className="flex flex-col items-center gap-1 opacity-80 hover:opacity-100 transition-opacity relative group">
-                        <div className={`w-10 h-10 rounded-full border-2 ${theme.border} p-0.5 relative`}>
-                            <img src={p.avatar} className="w-full h-full rounded-full object-cover" />
-                            <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border border-black"></div>
-                        </div>
-                        <span className="text-[9px] font-bold opacity-70">{p.name}</span>
-                    </div>
-                ))}
+            {/* Stats HUD (Updated) */}
+            <div className={`px-4 py-2 border-b ${theme.border} bg-black/10 backdrop-blur-sm z-10 grid grid-cols-3 gap-2 shrink-0`}>
+                <div className="flex flex-col items-center bg-red-500/20 rounded p-1 border border-red-500/30">
+                    <span className="text-[8px] text-red-300 font-bold uppercase">HP (生命)</span>
+                    <span className="text-xs font-mono font-bold text-red-100">{activeGame.status.health || 100}</span>
+                </div>
+                <div className="flex flex-col items-center bg-blue-500/20 rounded p-1 border border-blue-500/30">
+                    <span className="text-[8px] text-blue-300 font-bold uppercase">SAN (理智)</span>
+                    <span className="text-xs font-mono font-bold text-blue-100">{activeGame.status.sanity || 100}</span>
+                </div>
+                <div className="flex flex-col items-center bg-yellow-500/20 rounded p-1 border border-yellow-500/30">
+                    <span className="text-[8px] text-yellow-300 font-bold uppercase">GOLD (金币)</span>
+                    <span className="text-xs font-mono font-bold text-yellow-100">{activeGame.status.gold || 0}</span>
+                </div>
             </div>
 
             {/* Stage / Log Area */}
@@ -537,6 +644,16 @@ Output: A first-person memory summary in Chinese.`;
                     ))}
                 </div>
                 <div className="flex gap-2">
+                    {/* Reroll Button (New) */}
+                    <button 
+                        onClick={handleReroll}
+                        disabled={isTyping || activeGame.logs.length === 0}
+                        className={`px-3 rounded border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center`}
+                        title="重新生成上一轮"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 opacity-70"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                    </button>
+
                     <input 
                         value={userInput} 
                         onChange={e => setUserInput(e.target.value)} 
@@ -547,6 +664,21 @@ Output: A first-person memory summary in Chinese.`;
                     <button onClick={() => handleAction(userInput)} className={`${theme.accent} font-bold text-sm px-2`}>执行</button>
                 </div>
             </div>
+
+            {/* System Menu Modal */}
+            <Modal isOpen={showSystemMenu} title="系统菜单" onClose={() => setShowSystemMenu(false)}>
+                <div className="space-y-3">
+                    <button onClick={handleArchiveAndQuit} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
+                        <span>💾</span> 归档记忆并退出
+                    </button>
+                    <button onClick={handleRestart} className="w-full py-3 bg-orange-500 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
+                        <span>🔄</span> 重置当前游戏
+                    </button>
+                    <button onClick={handleLeave} className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl flex items-center justify-center gap-2">
+                        <span>🚪</span> 暂时离开 (不归档)
+                    </button>
+                </div>
+            </Modal>
 
             {/* Archive Overlay */}
             {isArchiving && (
