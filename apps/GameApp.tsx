@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { GameSession, GameTheme, CharacterProfile, GameLog } from '../types';
+import { GameSession, GameTheme, CharacterProfile, GameLog, GameActionOption } from '../types';
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 
@@ -53,6 +53,7 @@ const GameApp: React.FC = () => {
     const [newWorld, setNewWorld] = useState('');
     const [newTheme, setNewTheme] = useState<GameTheme>('fantasy');
     const [selectedPlayers, setSelectedPlayers] = useState<Set<string>>(new Set());
+    const [isCreating, setIsCreating] = useState(false);
 
     // Play State
     const [userInput, setUserInput] = useState('');
@@ -86,39 +87,127 @@ const GameApp: React.FC = () => {
             addToast('请填写完整信息并选择至少一名角色', 'error');
             return;
         }
-
-        const newGame: GameSession = {
-            id: `game-${Date.now()}`,
-            title: newTitle,
-            theme: newTheme,
-            worldSetting: newWorld,
-            playerCharIds: Array.from(selectedPlayers),
-            logs: [{
-                id: 'init',
-                role: 'gm',
-                content: `欢迎来到 "${newTitle}"。\n世界观载入中...\n${newWorld}`,
-                timestamp: Date.now()
-            }],
-            status: {
-                location: 'Start Point',
-                health: 100,
-                sanity: 100,
-                gold: 0,
-                inventory: []
-            },
-            createdAt: Date.now(),
-            lastPlayedAt: Date.now()
-        };
-
-        await DB.saveGame(newGame);
-        setGames(prev => [newGame, ...prev]);
-        setActiveGame(newGame);
-        setView('play');
         
-        // Reset form
-        setNewTitle('');
-        setNewWorld('');
-        setSelectedPlayers(new Set());
+        if (!apiConfig.apiKey) {
+            addToast('请先配置 API Key 以生成序章', 'error');
+            return;
+        }
+
+        setIsCreating(true);
+
+        try {
+            // Create initial game object
+            const tempId = `game-${Date.now()}`;
+            const players = characters.filter(c => selectedPlayers.has(c.id));
+            
+            let playerContext = "";
+            for (const p of players) {
+                playerContext += `\n<<< 角色档案: ${p.name} (ID: ${p.id}) >>>\n${ContextBuilder.buildCoreContext(p, userProfile, true)}\n`;
+            }
+
+            // Generate Prologue Prompt
+            const prompt = `### 🎲 TRPG 序章生成 (Game Start)
+**剧本标题**: ${newTitle}
+**世界观设定**: ${newWorld}
+**玩家**: ${userProfile.name}
+**队友**: ${players.map(p => p.name).join(', ')}
+
+### 任务
+你现在是 **Game Master (GM)**。请为这个冒险故事生成一个**精彩的开场 (Prologue)**。
+1. **剧情描述**: 描述玩家和队友们现在的处境。是在酒馆里接任务？还是在飞船上醒来？或者被怪物包围？（必须基于世界观设定）
+2. **角色反应**: 简要描述队友们的初始状态或第一句话。
+3. **初始选项**: 给出三个玩家可以采取的行动选项。
+
+### 输出格式 (Strict JSON)
+{
+  "gm_narrative": "序章剧情描述...",
+  "characters": [
+    { "charId": "角色ID", "action": "初始动作", "dialogue": "第一句台词" }
+  ],
+  "startLocation": "起始地点名称",
+  "suggested_actions": [
+    { "label": "选项1 (中立/正直/推进剧情)", "type": "neutral" },
+    { "label": "选项2 (乐子人/搞怪/出其不意)", "type": "chaotic" },
+    { "label": "选项3 (邪恶/激进/贪婪)", "type": "evil" }
+  ]
+}`;
+
+            const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
+                body: JSON.stringify({
+                    model: apiConfig.model,
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.9, 
+                    max_tokens: 4000
+                })
+            });
+
+            if (!response.ok) throw new Error('API Error');
+            const data = await response.json();
+            let content = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+            const res = JSON.parse(content);
+
+            const initialLogs: GameLog[] = [];
+            
+            // GM Log
+            initialLogs.push({
+                id: 'init-gm',
+                role: 'gm',
+                content: `【序章: ${newTitle}】\n${res.gm_narrative || '冒险开始了...'}`,
+                timestamp: Date.now()
+            });
+
+            // Character Logs
+            if (res.characters && Array.isArray(res.characters)) {
+                for (const charAct of res.characters) {
+                    const char = players.find(p => p.id === charAct.charId);
+                    if (char) {
+                        initialLogs.push({
+                            id: `init-char-${char.id}`,
+                            role: 'character',
+                            speakerName: char.name,
+                            content: `*${charAct.action}* “${charAct.dialogue}”`,
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+            }
+
+            const newGame: GameSession = {
+                id: tempId,
+                title: newTitle,
+                theme: newTheme,
+                worldSetting: newWorld,
+                playerCharIds: Array.from(selectedPlayers),
+                logs: initialLogs,
+                status: {
+                    location: res.startLocation || 'Unknown',
+                    health: 100,
+                    sanity: 100,
+                    gold: 0,
+                    inventory: []
+                },
+                suggestedActions: res.suggested_actions || [],
+                createdAt: Date.now(),
+                lastPlayedAt: Date.now()
+            };
+
+            await DB.saveGame(newGame);
+            setGames(prev => [newGame, ...prev]);
+            setActiveGame(newGame);
+            setView('play');
+            
+            // Reset form
+            setNewTitle('');
+            setNewWorld('');
+            setSelectedPlayers(new Set());
+
+        } catch (e: any) {
+            addToast(`创建失败: ${e.message}`, 'error');
+        } finally {
+            setIsCreating(false);
+        }
     };
 
     // --- Gameplay Logic ---
@@ -161,7 +250,7 @@ const GameApp: React.FC = () => {
             };
             
             const updatedLogs = [...activeGame.logs, userLog];
-            updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now() };
+            updatedGame = { ...activeGame, logs: updatedLogs, lastPlayedAt: Date.now(), suggestedActions: [] }; // Clear options while thinking
             setActiveGame(updatedGame);
             await DB.saveGame(updatedGame);
             contextLogs = updatedLogs;
@@ -179,7 +268,6 @@ const GameApp: React.FC = () => {
             const players = characters.filter(c => activeGame.playerCharIds.includes(c.id));
             let playerContext = "";
             for (const p of players) {
-                // FIXED: Include detailed memories (true) so characters act based on history
                 playerContext += `\n<<< 角色档案: ${p.name} (ID: ${p.id}) >>>\n${ContextBuilder.buildCoreContext(p, userProfile, true)}\n`;
             }
 
@@ -204,7 +292,7 @@ ${contextLogs.slice(-15).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
 
 ### 🎲 GM 指令 (Game Master Instructions)
 你现在是这场跑团游戏的 **主持人 (GM)**。
-**现在的状态**：这不是一个"AI服务玩家"的场景，而是一群性格各异的伙伴（${players.map(p => p.name).join(', ')}）正和玩家(${userProfile.name})一起在这个疯狂的游戏世界里冒险。
+**现在的状态**：这不是一个"AI服务玩家"的场景，而是一群性格各异的伙伴（${players.map(p => p.name).join(', ')}）正和玩家(${userProfile.name})一起在这个疯狂的世界里冒险。
 
 **请遵循以下法则**：
 1. **全员「入戏」 (Roleplay First)**: 
@@ -218,9 +306,11 @@ ${contextLogs.slice(-15).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
    - **环境描写**: 描述光影、气味、声音，营造沉浸感。
    - **数值惩罚**: 如果玩家做出危险举动，请毫不留情地扣除 HP 或 SAN，并让队友对此表示震惊或无奈。
 
-3. **响应逻辑**:
-   - 先由 GM 描述环境变化或行动结果。
-   - 然后**所有**在场的队友根据结果做出反应（对话/动作）。
+3. **生成选项 (Action Options)**:
+   - 请根据当前局势，为玩家提供 3 个可选的行动建议。
+   - 选项 1 (neutral): 中立、正直、常规推进剧情。
+   - 选项 2 (chaotic): 乐子人、搞怪、出其不意、脱线。
+   - 选项 3 (evil): 邪恶、激进、贪婪、暴力。
 
 ### 📤 输出格式 (Strict JSON)
 请仅输出 JSON，不要包含 Markdown 代码块。
@@ -237,7 +327,12 @@ ${contextLogs.slice(-15).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
   "hpChange": 0,
   "sanityChange": 0,
   "goldChange": 0,
-  "newItem": "获得物品 (可选)"
+  "newItem": "获得物品 (可选)",
+  "suggested_actions": [
+    { "label": "选项1文本", "type": "neutral" },
+    { "label": "选项2文本", "type": "chaotic" },
+    { "label": "选项3文本", "type": "evil" }
+  ]
 }`;
 
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -301,7 +396,8 @@ ${contextLogs.slice(-15).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
                 const finalGame = {
                     ...updatedGame,
                     logs: [...contextLogs, ...newLogs], // Append to correct context
-                    status: newStatus
+                    status: newStatus,
+                    suggestedActions: res.suggested_actions || []
                 };
                 
                 setActiveGame(finalGame);
@@ -365,6 +461,7 @@ ${contextLogs.slice(-15).map(l => `[${l.role === 'gm' ? 'GM' : (l.speakerName ||
                 gold: 0,
                 inventory: []
             },
+            suggestedActions: [],
             lastPlayedAt: Date.now()
         };
 
@@ -512,8 +609,12 @@ Output: A first-person memory summary in Chinese.`;
                     </div>
                 </div>
                 <div className="p-4 border-t border-slate-200 bg-white">
-                    <button onClick={handleCreateGame} className="w-full py-3 bg-slate-800 text-white font-bold rounded-2xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
-                        <span>🚀</span> 开始冒险
+                    <button 
+                        onClick={handleCreateGame} 
+                        disabled={isCreating}
+                        className="w-full py-3 bg-slate-800 text-white font-bold rounded-2xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2"
+                    >
+                        {isCreating ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> 生成序章...</> : <><span>🚀</span> 开始冒险</>}
                     </button>
                 </div>
             </div>
@@ -631,6 +732,30 @@ Output: A first-person memory summary in Chinese.`;
 
             {/* Controls */}
             <div className={`p-4 border-t ${theme.border} bg-opacity-90 backdrop-blur shrink-0 z-20`}>
+                
+                {/* AI Suggested Options Area */}
+                {activeGame.suggestedActions && activeGame.suggestedActions.length > 0 && !isTyping && (
+                    <div className="flex gap-2 mb-3 overflow-x-auto no-scrollbar pb-1">
+                        {activeGame.suggestedActions.map((opt, idx) => {
+                            let styleClass = "bg-white/10 border-white/20 text-slate-200";
+                            if (opt.type === 'neutral') styleClass = "bg-slate-200/20 border-slate-400/30 text-slate-300";
+                            if (opt.type === 'chaotic') styleClass = "bg-yellow-500/20 border-yellow-500/30 text-yellow-200";
+                            if (opt.type === 'evil') styleClass = "bg-red-500/20 border-red-500/30 text-red-200";
+                            
+                            return (
+                                <button 
+                                    key={idx} 
+                                    onClick={() => handleAction(opt.label)}
+                                    className={`flex-1 min-w-[100px] text-[10px] p-2 rounded-lg border ${styleClass} hover:bg-white/20 active:scale-95 transition-all text-left leading-tight shadow-sm`}
+                                >
+                                    <span className="block font-bold opacity-70 uppercase text-[8px] mb-0.5 tracking-wider">{opt.type}</span>
+                                    {opt.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
                 <div className="flex gap-2 mb-3">
                     <button 
                         onClick={rollDice} 
@@ -643,25 +768,27 @@ Output: A first-person memory summary in Chinese.`;
                         <button key={action} onClick={() => handleAction(action)} className={`px-4 py-2 rounded border ${theme.border} hover:bg-white/10 text-xs font-bold transition-colors active:scale-95`}>{action}</button>
                     ))}
                 </div>
-                <div className="flex gap-2">
-                    {/* Reroll Button (New) */}
+                <div className="flex gap-2 items-end">
+                    {/* Reroll Button */}
                     <button 
                         onClick={handleReroll}
                         disabled={isTyping || activeGame.logs.length === 0}
-                        className={`px-3 rounded border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center`}
+                        className={`p-3 h-12 rounded-xl border ${theme.border} hover:bg-white/10 active:scale-95 transition-transform flex items-center justify-center`}
                         title="重新生成上一轮"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 opacity-70"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
                     </button>
 
-                    <input 
+                    <textarea 
                         value={userInput} 
                         onChange={e => setUserInput(e.target.value)} 
-                        onKeyDown={e => e.key === 'Enter' && handleAction(userInput)}
+                        // Removed onKeyDown Enter submission
                         placeholder="你打算做什么..." 
-                        className={`flex-1 bg-transparent border-b ${theme.border} px-2 py-2 outline-none text-sm placeholder-opacity-30 placeholder-current`}
+                        className={`flex-1 bg-black/20 border ${theme.border} rounded-xl px-3 py-3 outline-none text-sm placeholder-opacity-30 placeholder-current resize-none h-12 leading-tight focus:bg-black/40 transition-colors`}
                     />
-                    <button onClick={() => handleAction(userInput)} className={`${theme.accent} font-bold text-sm px-2`}>执行</button>
+                    <button onClick={() => handleAction(userInput)} className={`${theme.accent} font-bold text-sm px-4 h-12 bg-white/10 rounded-xl hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>
+                    </button>
                 </div>
             </div>
 

@@ -392,6 +392,11 @@ export interface StudyCourse {
 // --- GAME / TRPG TYPES ---
 export type GameTheme = 'fantasy' | 'cyber' | 'horror' | 'modern';
 
+export interface GameActionOption {
+    label: string;
+    type: 'neutral' | 'chaotic' | 'evil';
+}
+
 export interface GameLog {
     id: string;
     role: 'gm' | 'player' | 'character' | 'system';
@@ -420,6 +425,7 @@ export interface GameSession {
         gold: number;   // Currency
         inventory: string[];
     };
+    suggestedActions?: GameActionOption[]; // Options for next turn
     createdAt: number;
     lastPlayedAt: number;
 }
