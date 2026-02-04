@@ -87,8 +87,12 @@ export class BrainAgent {
   ): Promise<ProcessResult> {
     
     try {
+      console.log('[BrainAgent] 处理用户输入:', userInput);
+      
       // Step 1: 让LLM判断是否只需要回复，还是需要外置大脑
       const decision = await this.askLLMForDecision(userInput, chatHistory, llmProvider);
+      
+      console.log('[BrainAgent] LLM决策:', { needBrain: decision.needBrain, reply: decision.reply, hasTask: !!decision.task });
       
       if (!decision.needBrain || !decision.task) {
         // 纯对话，直接返回
@@ -143,9 +147,12 @@ export class BrainAgent {
     ];
     
     const response = await llmProvider.chat(messages);
+    console.log('[BrainAgent] LLM原始输出:', response);
     
     // 解析LLM的决策
-    return this.parseDecision(response);
+    const decision = this.parseDecision(response);
+    console.log('[BrainAgent] 解析后的决策:', decision);
+    return decision;
   }
 
   /**
@@ -160,10 +167,19 @@ export class BrainAgent {
 2. 需要执行现实操作 → 调用外置大脑（needBrain: true）
 
 【外置大脑能做的事】
-• 文件操作：读取、写入、列出目录、搜索文件
-• 命令执行：运行程序、执行脚本
+• 文件操作：读取、写入、列出目录、搜索文件（路径如 D:/xxx 或 /home/xxx）
+• 命令执行：运行程序、执行脚本、终端命令
 • 网络操作：搜索网页、获取网页内容
-• 系统信息：查看电脑状态
+• 系统信息：查看电脑状态、硬件信息
+
+【触发外置大脑的关键词】
+以下用户说法通常意味着需要外置大脑：
+- 查看/列出/看看 + 路径（如"看看D盘"、"列出文件夹"）
+- 读取/打开 + 文件名
+- 运行/执行 + 命令
+- 搜索/查找 + 内容
+- 电脑/系统 + 信息/状态
+- 下载/获取 + 网页
 
 【输出格式】
 你必须严格按JSON格式输出：
