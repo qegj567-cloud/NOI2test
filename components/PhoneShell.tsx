@@ -260,7 +260,7 @@ const PhoneShell: React.FC = () => {
 </div>
 
           {/* Overlays: Status Bar (Top) */}
-          <StatusBar />
+          {!theme.hideStatusBar && <StatusBar />}
           
           {/* Overlays: Toasts (Top) */}
           <div className="absolute top-12 left-0 w-full flex flex-col items-center gap-2 pointer-events-none z-[60]">

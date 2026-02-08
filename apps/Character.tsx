@@ -12,14 +12,14 @@ import { ContextBuilder } from '../utils/context';
 import ImpressionPanel from '../components/character/ImpressionPanel';
 import MemoryArchivist from '../components/character/MemoryArchivist';
 
-const CharacterCard: React.FC<{ 
-    char: CharacterProfile; 
+const CharacterCard: React.FC<{
+    char: CharacterProfile;
     onClick: () => void;
     onDelete: (e: React.MouseEvent) => void;
 }> = ({ char, onClick, onDelete }) => (
-    <div 
+    <div
         onClick={onClick}
-        className="relative p-4 rounded-3xl border bg-white/40 border-white/40 hover:bg-white/60 hover:scale-[1.01] transition-all duration-300 cursor-pointer group shadow-sm"
+        className="relative p-4 rounded-3xl border bg-white/40 border-white/40 hover:bg-white/60 hover:scale-[1.01] transition-all duration-300 cursor-pointer group shadow-sm shrink-0"
     >
         <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-full bg-slate-100 border border-white/50 overflow-hidden relative shadow-inner">
@@ -450,25 +450,34 @@ ${rawLog.substring(0, 200000)}
       try {
           const charName = formData.name;
           const boundUser = userProfile;
-          
+
+          // 构建完整角色上下文（包含人设、世界观、用户档案、精炼记忆等宏观信息）
+          const fullContext = ContextBuilder.buildCoreContext(formData, userProfile);
+
           let messagesToAnalyze = "";
-          const msgs = await DB.getMessagesByCharId(targetId);
-          const recentMsgs = msgs.slice(-50); 
-          const msgText = recentMsgs.map(m => {
-              let content = m.content;
-              if (m.type === 'image') content = '[图片]';
-              return `${m.role === 'user' ? boundUser.name : charName}: ${content}`;
-          }).join('\n');
-          
-          if (msgText) messagesToAnalyze += `\n【最近的聊天记录 (Recent Chats)】:\n${msgText}\n`;
-          
+
+          // 第一层：完整上下文 —— 宏观人格分析的基石
+          messagesToAnalyze += `\n【完整角色上下文 (Full Context - 宏观分析的基石)】:\n${fullContext}\n`;
+
+          // 第二层：长期记忆详细记录 —— 补充具体事件细节
           const mems = formData.memories || [];
           let memoryText = "";
           if (mems.length > 0) {
               const sortedMems = [...mems].sort((a,b) => b.date.localeCompare(a.date));
               memoryText = sortedMems.slice(0, 100).map(m => `[${m.date}] ${m.summary}`).join('\n');
-              messagesToAnalyze += `\n【长期记忆库 (Long-Term Memories)】:\n${memoryText}\n`;
+              messagesToAnalyze += `\n【长期记忆详细记录 (Long-Term Memory Logs)】:\n${memoryText}\n`;
           }
+
+          // 第三层：最近聊天 —— 仅用于检测近期变化
+          const msgs = await DB.getMessagesByCharId(targetId);
+          const recentMsgs = msgs.slice(-50);
+          const msgText = recentMsgs.map(m => {
+              let content = m.content;
+              if (m.type === 'image') content = '[图片]';
+              return `${m.role === 'user' ? boundUser.name : charName}: ${content}`;
+          }).join('\n');
+
+          if (msgText) messagesToAnalyze += `\n【最近的聊天记录 (Recent Chats - 仅用于检测近期变化)】:\n${msgText}\n`;
 
           const currentProfileJSON = formData.impression ? JSON.stringify(formData.impression, null, 2) : "null";
           const isInitialGeneration = type === 'initial' || !formData.impression;
@@ -491,9 +500,15 @@ ${messagesToAnalyze}
 你【就是】"${charName}"。这份档案是你写的【私人笔记】。
 因此，所有总结性的字段（如 \`core_values\`, \`summary\`, \`emotion_summary\` 等），【必须】使用你的第一人称（"我"）视角来撰写。
 
-【核心指令：权重分配】
-1. **长期记忆 (Long-Term Memories)**: 这是你对TA印象的【基石】。核心性格、核心价值观、互动模式应主要基于此。
-2. **近期聊天 (Recent Chats)**: 这只代表TA【当下的状态】。除非发生重大事件，否则不要因为最近几次聊天的情绪波动（如偶尔生气）就改变对TA本质的判断。请用它来更新 [behavior_profile.emotion_summary] 和 [observed_changes]。
+【核心指令：数据层级与权重分配】
+1. **完整角色上下文 (Full Context)**: 这是你【最重要的分析基础】。它包含了你的人设、世界观、用户档案、精炼记忆等长期积累的宏观信息。你对TA的核心性格、核心价值观、互动模式、人格特质的判断，必须主要基于这些长期宏观数据。
+2. **长期记忆详细记录 (Memory Logs)**: 作为上下文的补充，提供具体的事件细节，帮助你验证和丰富宏观判断。
+3. **近期聊天 (Recent Chats)**: 这【仅仅】代表TA当下的状态切片。它的作用【严格限定】在更新 [behavior_profile.emotion_summary] 和 [observed_changes] 两个字段。除非发生了重大事件（如价值观冲突、人生转折），否则【绝对不要】因为最近几次聊天的情绪波动就改变对TA本质人格的判断。
+
+【反面教材 - 严禁出现】
+- ❌ 仅根据最近聊天就总结"TA是一个喜欢讨论XX话题的人" —— 这是把近期话题当成了人格特质
+- ❌ personality_core.summary 里出现"最近"、"这几天"等时间限定词 —— summary 应该是跨越所有记忆的宏观总结
+- ✅ 正确做法：personality_core 基于完整上下文和长期记忆，observed_changes 基于近期聊天与长期印象的对比
 
 分析指令：五维画像更新 (第一人称视角)
 根据【强制对比协议】和你自己的视角，分析新消息，并${isInitialGeneration ? '【生成】' : '【增量更新】'}以下JSON结构。
@@ -706,7 +721,7 @@ ${messagesToAnalyze}
                         <button onClick={closeApp} className="p-2 rounded-full bg-white/40 hover:bg-white/80 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-slate-600"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg></button>
                    </div>
                </div>
-               <div className="flex-1 overflow-y-auto px-5 pb-20 no-scrollbar space-y-3">
+               <div className="flex-1 overflow-y-auto px-5 pb-20 no-scrollbar flex flex-col gap-3">
                    {characters.map(char => (
                        <CharacterCard 
                            key={char.id} 
@@ -718,7 +733,7 @@ ${messagesToAnalyze}
                            }} 
                        />
                    ))}
-                   <button onClick={addCharacter} className="w-full py-4 rounded-3xl border border-dashed border-slate-300 text-slate-400 text-sm hover:bg-white/30 transition-all flex items-center justify-center gap-2">
+                   <button onClick={addCharacter} className="w-full py-4 rounded-3xl border border-dashed border-slate-300 text-slate-400 text-sm hover:bg-white/30 transition-all flex items-center justify-center gap-2 shrink-0">
                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>新建链接
                    </button>
                </div>

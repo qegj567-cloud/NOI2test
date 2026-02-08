@@ -1,8 +1,26 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import JSZip from 'jszip';
-import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, Message } from '../types';
+import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, Message, RealtimeConfig } from '../types';
 import { DB } from '../utils/db';
+
+// 默认实时配置
+const defaultRealtimeConfig: RealtimeConfig = {
+  weatherEnabled: false,
+  weatherApiKey: '',
+  weatherCity: 'Beijing',
+  newsEnabled: false,
+  newsApiKey: '',
+  notionEnabled: false,
+  notionApiKey: '',
+  notionDatabaseId: '',
+  feishuEnabled: false,
+  feishuAppId: '',
+  feishuAppSecret: '',
+  feishuBaseId: '',
+  feishuTableId: '',
+  cacheMinutes: 30
+};
 
 interface OSContextType {
   activeApp: AppID;
@@ -53,6 +71,10 @@ interface OSContextType {
   addApiPreset: (name: string, config: APIConfig) => void;
   removeApiPreset: (id: string) => void;
 
+  // 实时配置 (天气、新闻、Notion等)
+  realtimeConfig: RealtimeConfig;
+  updateRealtimeConfig: (updates: Partial<RealtimeConfig>) => void;
+
   customThemes: ChatTheme[];
   addCustomTheme: (theme: ChatTheme) => void;
   removeCustomTheme: (id: string) => void;
@@ -70,7 +92,7 @@ interface OSContextType {
   clearUnread: (charId: string) => void; // New: Method to clear unread
 
   // System
-  exportSystem: (mode: 'text_only' | 'media_only' | 'theme_only') => Promise<Blob>; 
+  exportSystem: (mode: 'text_only' | 'media_only') => Promise<Blob>; 
   importSystem: (fileOrJson: File | string) => Promise<void>; // Accept File or String
   resetSystem: () => Promise<void>;
   sysOperation: { status: 'idle' | 'processing', message: string, progress: number }; // Progress state
@@ -301,6 +323,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [apiPresets, setApiPresets] = useState<ApiPreset[]>([]);
+  const [realtimeConfig, setRealtimeConfig] = useState<RealtimeConfig>(defaultRealtimeConfig);
   const [customThemes, setCustomThemes] = useState<ChatTheme[]>([]);
   const [customIcons, setCustomIcons] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -475,6 +498,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         if (savedApi) setApiConfig(JSON.parse(savedApi));
         if (savedModels) setAvailableModels(JSON.parse(savedModels));
         if (savedPresets) setApiPresets(JSON.parse(savedPresets));
+
+        // 加载实时配置
+        const savedRealtimeConfig = localStorage.getItem('os_realtime_config');
+        if (savedRealtimeConfig) {
+            try {
+                setRealtimeConfig({ ...defaultRealtimeConfig, ...JSON.parse(savedRealtimeConfig) });
+            } catch (e) {
+                console.error('Failed to load realtime config', e);
+            }
+        }
 
         try {
             const assets = await DB.getAllAssets();
@@ -734,6 +767,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     localStorage.setItem('os_theme', JSON.stringify(lsTheme));
   };
   const updateApiConfig = (updates: Partial<APIConfig>) => { const newConfig = { ...apiConfig, ...updates }; setApiConfig(newConfig); localStorage.setItem('os_api_config', JSON.stringify(newConfig)); };
+  const updateRealtimeConfig = (updates: Partial<RealtimeConfig>) => { const newConfig = { ...realtimeConfig, ...updates }; setRealtimeConfig(newConfig); localStorage.setItem('os_realtime_config', JSON.stringify(newConfig)); };
   const saveModels = (models: string[]) => { setAvailableModels(models); localStorage.setItem('os_available_models', JSON.stringify(models)); };
   const addApiPreset = (name: string, config: APIConfig) => { setApiPresets(prev => { const next = [...prev, { id: Date.now().toString(), name, config }]; localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
   const removeApiPreset = (id: string) => { setApiPresets(prev => { const next = prev.filter(p => p.id !== id); localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
@@ -861,7 +895,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const addToast = (message: string, type: Toast['type'] = 'info') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, message, type }]); setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3000); };
 
   // --- MODIFIED EXPORT SYSTEM WITH SEPARATED ASSETS ZIP ---
-  const exportSystem = async (mode: 'text_only' | 'media_only' | 'theme_only'): Promise<Blob> => {
+  const exportSystem = async (mode: 'text_only' | 'media_only'): Promise<Blob> => {
       try {
           setSysOperation({ status: 'processing', message: '正在初始化打包引擎...', progress: 0 });
           
@@ -935,9 +969,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (mode === 'text_only') {
               storesToProcess = allStores.filter(s => s !== 'assets'); // Exclude raw assets store
           } else if (mode === 'media_only') {
-              storesToProcess = ['gallery', 'emojis', 'journal_stickers', 'user_profile', 'characters', 'messages'];
-          } else if (mode === 'theme_only') {
-              storesToProcess = ['themes', 'assets']; // assets includes wallpapers and icons
+              // media_only now includes themes/assets for complete media backup
+              storesToProcess = ['gallery', 'emojis', 'journal_stickers', 'user_profile', 'characters', 'messages', 'themes', 'assets'];
           }
 
           // Fetch Social App & Room Assets (Optional, depends on mode)
@@ -947,11 +980,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           const backupData: Partial<FullBackupData> = {
               timestamp: Date.now(),
-              version: 2, 
+              version: 2,
               apiConfig: mode === 'text_only' ? apiConfig : undefined, // Only export API config in full text backup
               apiPresets: mode === 'text_only' ? apiPresets : undefined,
               availableModels: mode === 'text_only' ? availableModels : undefined,
-              theme: (mode === 'text_only' || mode === 'theme_only') ? theme : undefined,
+              realtimeConfig: mode === 'text_only' ? realtimeConfig : undefined, // 导出实时感知配置（天气/新闻/Notion）
+              theme: theme, // Include theme in all modes (text/media)
               
               socialAppData: (mode === 'text_only' || mode === 'media_only') ? {
                   charHandles: JSON.parse(localStorage.getItem('spark_char_handles') || '{}'),
@@ -1029,11 +1063,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       });
                       backupData.mediaAssets = mediaList;
                       continue; // Skip standard assignment
-                  }
-
-                  if (storeName === 'assets' && mode === 'theme_only') {
-                      // Filter assets: Keep wallpapers, icons. Exclude large binary blobs if not relevant?
-                      // Actually just export all assets for simplicity in theme mode
                   }
 
                   processedData = processObject(rawData);
@@ -1172,6 +1201,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (data.apiConfig) updateApiConfig(data.apiConfig);
           if (data.availableModels) saveModels(data.availableModels);
           if (data.apiPresets) savePresets(data.apiPresets);
+          if (data.realtimeConfig) updateRealtimeConfig(data.realtimeConfig); // 恢复实时感知配置
           
           if (data.socialAppData) {
               if (data.socialAppData.charHandles) localStorage.setItem('spark_char_handles', JSON.stringify(data.socialAppData.charHandles));
@@ -1284,6 +1314,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     apiPresets,
     addApiPreset,
     removeApiPreset,
+    realtimeConfig,
+    updateRealtimeConfig,
     customThemes,
     addCustomTheme,
     removeCustomTheme,

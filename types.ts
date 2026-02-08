@@ -48,8 +48,15 @@ export interface OSTheme {
   wallpaper: string;
   darkMode: boolean;
   contentColor?: string;
-  launcherWidgetImage?: string; 
-  customFont?: string; 
+  launcherWidgetImage?: string;
+  customFont?: string;
+  hideStatusBar?: boolean;
+}
+
+export interface TranslationConfig {
+  enabled: boolean;
+  sourceLang: string; // e.g. '日本語' - the language messages are displayed in (选)
+  targetLang: string; // e.g. '中文' - the language to translate into (译)
 }
 
 export interface VirtualTime {
@@ -68,6 +75,33 @@ export interface ApiPreset {
   id: string;
   name: string;
   config: APIConfig;
+}
+
+// 实时上下文配置 - 让AI角色感知真实世界
+export interface RealtimeConfig {
+  // 天气配置
+  weatherEnabled: boolean;
+  weatherApiKey: string;  // OpenWeatherMap API Key
+  weatherCity: string;    // 城市名
+
+  // 新闻配置
+  newsEnabled: boolean;
+  newsApiKey?: string;
+
+  // Notion 配置
+  notionEnabled: boolean;
+  notionApiKey: string;   // Notion Integration Token
+  notionDatabaseId: string; // 日记数据库ID
+
+  // 飞书配置 (中国区 Notion 替代)
+  feishuEnabled: boolean;
+  feishuAppId: string;      // 飞书应用 App ID
+  feishuAppSecret: string;  // 飞书应用 App Secret
+  feishuBaseId: string;     // 多维表格 App Token
+  feishuTableId: string;    // 数据表 Table ID
+
+  // 缓存配置
+  cacheMinutes: number;
 }
 
 export interface MemoryFragment {
@@ -304,6 +338,9 @@ export interface ShopStaff {
     personality?: string; // New: Custom personality
     x?: number; // New: Position X (0-100)
     y?: number; // New: Position Y (0-100)
+    // Pet System
+    ownerCharId?: string; // If set, this staff is a "pet" belonging to this character
+    isPet?: boolean; // Flag to indicate this is a pet
 }
 
 export interface ShopRecipe {
@@ -383,7 +420,8 @@ export interface CharacterProfile {
   dateBackground?: string;
   sprites?: Record<string, string>;
   spriteConfig?: SpriteConfig;
-  
+  customDateSprites?: string[]; // User-added custom emotion names for date mode (per-character)
+
   savedDateState?: DateState;
 
   socialProfile?: {
@@ -590,7 +628,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'interaction' | 'transfer' | 'system' | 'social_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward';
 
 export interface Message {
     id: number;
@@ -627,6 +665,7 @@ export interface FullBackupData {
     apiConfig?: APIConfig;
     apiPresets?: ApiPreset[];
     availableModels?: string[];
+    realtimeConfig?: RealtimeConfig;  // 实时感知配置（天气/新闻/Notion）
     customIcons?: Record<string, string>;
     characters?: CharacterProfile[];
     groups?: GroupProfile[]; 

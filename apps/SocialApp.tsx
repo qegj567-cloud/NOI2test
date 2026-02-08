@@ -899,14 +899,20 @@ ${identityMap}
                     
                     {activeTab === 'home' && (
                         <div className="p-2 min-h-full">
-                            {isRefreshing && <div className="text-center py-4 text-xs text-[#ff2442] font-bold animate-pulse flex justify-center items-center gap-2"><div className="w-4 h-4 border-2 border-[#ff2442] border-t-transparent rounded-full animate-spin"></div> 正在获取新鲜事...</div>}
+                            {/* Refresh Button - Above Posts */}
+                            <div className="flex items-center justify-center py-3">
+                                {isRefreshing ? (
+                                    <div className="text-center text-xs text-[#ff2442] font-bold animate-pulse flex items-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-[#ff2442] border-t-transparent rounded-full animate-spin"></div> 正在获取新鲜事...
+                                    </div>
+                                ) : (
+                                    <button onClick={handleRefresh} className="px-6 py-2 bg-white/80 backdrop-blur-md rounded-full text-xs font-bold text-slate-500 shadow-sm border border-white hover:text-[#ff2442] active:scale-95 transition-all">
+                                        点击刷新推荐流
+                                    </button>
+                                )}
+                            </div>
                             <div className="columns-2 gap-2 space-y-2 pb-24">
                                 {feed.map(post => renderFeedItem(post))}
-                            </div>
-                            <div className="h-32 flex items-center justify-center pb-8">
-                                <button onClick={handleRefresh} className="px-6 py-2 bg-white/80 backdrop-blur-md rounded-full text-xs font-bold text-slate-500 shadow-sm border border-white hover:text-[#ff2442] active:scale-95 transition-all">
-                                    点击刷新推荐流
-                                </button>
                             </div>
                         </div>
                     )}

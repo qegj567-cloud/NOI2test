@@ -92,20 +92,40 @@ export const ChatParser = {
 
     // Chunking text for typing effect
     chunkText: (text: string): string[] => {
-        let tempContent = text
+        // 1. Protect [[QUOTE:...]] tags from being split by punctuation inside them
+        const quoteMap: Record<string, string> = {};
+        let quoteIdx = 0;
+        let tempContent = text.replace(/\[\[QUOTE:\s*[\s\S]*?\]\]/g, (match) => {
+            const key = `{{QUOTE_${quoteIdx++}}}`;
+            quoteMap[key] = match;
+            return key;
+        });
+
+        tempContent = tempContent
             .replace(/\.\.\./g, '{{ELLIPSIS_ENG}}')
             .replace(/……/g, '{{ELLIPSIS_CN}}')
-            .replace(/([。])(?![）\)\]】"”'])/g, '{{SPLIT}}') 
-            .replace(/\.($|\s+)/g, '{{SPLIT}}')
-            .replace(/([！!？?~]+)(?![）\)\]】"”'])/g, '$1{{SPLIT}}') 
+            .replace(/([。])(?![）\)\]】""'])/g, '{{SPLIT}}')
+            // Only split on English period at true end-of-sentence:
+            // Must be followed by end-of-string, newline, or whitespace+uppercase/space
+            // NOT followed by opening paren, Chinese chars, or lowercase continuation
+            .replace(/\.(?=\s*$)/gm, '{{SPLIT}}')
+            .replace(/\.(?=\s+[A-Z])/g, '.{{SPLIT}}')
+            .replace(/([！!？?~]+)(?![）\)\]】""'])/g, '$1{{SPLIT}}')
             .replace(/\n+/g, '{{SPLIT}}')
             .replace(/([\u4e00-\u9fa5])[ ]+([\u4e00-\u9fa5])/g, '$1{{SPLIT}}$2');
 
         const chunks = tempContent.split('{{SPLIT}}')
             .map(c => c.trim())
             .filter(c => c.length > 0)
-            .map(c => c.replace(/{{ELLIPSIS_ENG}}/g, '...').replace(/{{ELLIPSIS_CN}}/g, '……'));
-            
+            .map(c => {
+                c = c.replace(/{{ELLIPSIS_ENG}}/g, '...').replace(/{{ELLIPSIS_CN}}/g, '……');
+                // Restore QUOTE placeholders
+                Object.keys(quoteMap).forEach(key => {
+                    c = c.replace(key, quoteMap[key]);
+                });
+                return c;
+            });
+
         return chunks;
     }
 }

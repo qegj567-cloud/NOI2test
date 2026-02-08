@@ -187,6 +187,23 @@ export const DB = {
     });
   },
 
+  // Performance: Load only the most recent N messages for a character
+  getRecentMessagesByCharId: async (charId: string, limit: number): Promise<Message[]> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+      const store = transaction.objectStore(STORE_MESSAGES);
+      const index = store.index('charId');
+      const request = index.getAll(IDBKeyRange.only(charId));
+      request.onsuccess = () => {
+          const results = (request.result || []).filter((m: Message) => !m.groupId);
+          // Only return the last N messages to reduce memory usage
+          resolve(results.slice(-limit));
+      };
+      request.onerror = () => reject(request.error);
+    });
+  },
+
   saveMessage: async (msg: Omit<Message, 'id' | 'timestamp'>): Promise<number> => {
     const db = await openDB();
     return new Promise((resolve, reject) => {

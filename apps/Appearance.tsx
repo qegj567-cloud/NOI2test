@@ -237,6 +237,23 @@ const Appearance: React.FC = () => {
                     )}
                 </section>
 
+                {/* Status Bar Toggle */}
+                <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+                    <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">状态栏 (Status Bar)</h2>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="text-sm font-medium text-slate-700">隐藏顶部时间栏</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">隐藏屏幕顶部的时间、电量等信息</div>
+                        </div>
+                        <button
+                            onClick={() => updateTheme({ hideStatusBar: !theme.hideStatusBar })}
+                            className={`w-12 h-7 rounded-full transition-colors relative ${theme.hideStatusBar ? 'bg-primary' : 'bg-slate-200'}`}
+                        >
+                            <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${theme.hideStatusBar ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+                </section>
+
                 {/* Wallpaper Section */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Wallpaper</h2>
